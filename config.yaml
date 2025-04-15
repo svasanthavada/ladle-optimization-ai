@@ -1,0 +1,3 @@
+grades: [AISI 4130, R370CrHT, AISI 4140, A36, AR400/AR500, MIL-A-46100, AISI 1045]
+thresholds:
+  temperature: [1440, 1620]
