@@ -1,3 +1,6 @@
+import os
+os.environ["STREAMLIT_WATCHER_IGNORE_MODULES"] = "torch"  # <-- Add this line at the very top
+
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -6,7 +9,6 @@ import datetime
 import matplotlib.pyplot as plt
 from sklearn.preprocessing import StandardScaler
 import joblib
-import os
 import random
 
 from src.preprocessing import preprocess_pipeline
@@ -95,63 +97,68 @@ if st.session_state.rerun_optimization:
     torch.manual_seed(SEED)
 
     progress = st.progress(0)
-    st.info("Running GA optimization for all models...")
+    status = st.status("Running model optimizations...", expanded=True)
+    total_steps = 2 * len(models)
+    step = 0
 
-    for i, (name, entry) in enumerate(models.items()):
-        model = entry["model"]
-        model_type = entry["type"]
+    with status:
+        st.write("Running GA optimization for all models...")
+        for i, (name, entry) in enumerate(models.items()):
+            st.write(f"GA: Optimizing with {name}...")
+            model = entry["model"]
+            model_type = entry["type"]
 
-        if name == "TabTransformer":
-            model.load_state_dict(torch.load(entry["path"]))
-            model.eval()
+            if name == "TabTransformer":
+                model.load_state_dict(torch.load(entry["path"]))
+                model.eval()
 
-        optimized_alloys, chem_final = run_ga_optimization(
-            model=model,
-            model_type=model_type,
-            features=features,
-            target=target,
-            feature_scaler=feature_scaler,
-            target_scaler=target_scaler,
-            base_inputs=base_inputs,
-            target_chemistry_dict=chem_target,
-            alloy_cols=alloy_cols,
-            df=df_model,
-            seed=SEED
-        )
+            optimized_alloys, chem_final = run_ga_optimization(
+                model=model,
+                model_type=model_type,
+                features=features,
+                target=target,
+                feature_scaler=feature_scaler,
+                target_scaler=target_scaler,
+                base_inputs=base_inputs,
+                target_chemistry_dict=chem_target,
+                alloy_cols=alloy_cols,
+                df=df_model,
+                seed=SEED
+            )
 
-        results[f"{name} + GA"] = {
-            "alloys": optimized_alloys,
-            "chem": chem_final
-        }
+            results[f"{name} + GA"] = {
+                "alloys": optimized_alloys,
+                "chem": chem_final
+            }
+            step += 1
+            progress.progress(step / total_steps)
 
-        progress.progress((i + 1) / (2 * len(models)))
+        st.write("Running PSO optimization for all models...")
+        for j, (name, entry) in enumerate(models.items()):
+            st.write(f"PSO: Optimizing with {name}...")
+            model = entry["model"]
+            model_type = entry["type"]
 
-    st.info("Running PSO optimization for all models...")
+            optimized_alloys, chem_final = run_pso_optimization(
+                model=model,
+                model_type=model_type,
+                features=features,
+                target=target,
+                feature_scaler=feature_scaler,
+                target_scaler=target_scaler,
+                base_inputs=base_inputs,
+                target_chemistry_dict=chem_target,
+                alloy_cols=alloy_cols,
+                df_successful=df_model,
+                seed=SEED
+            )
 
-    for j, (name, entry) in enumerate(models.items()):
-        model = entry["model"]
-        model_type = entry["type"]
-
-        optimized_alloys, chem_final = run_pso_optimization(
-            model=model,
-            model_type=model_type,
-            features=features,
-            target=target,
-            feature_scaler=feature_scaler,
-            target_scaler=target_scaler,
-            base_inputs=base_inputs,
-            target_chemistry_dict=chem_target,
-            alloy_cols=alloy_cols,
-            df_successful=df_model,
-            seed=SEED
-        )
-
-        results[f"{name} + PSO"] = {
-            "alloys": optimized_alloys,
-            "chem": chem_final
-        }
-
-        progress.progress((len(models) + j + 1) / (2 * len(models)))
+            results[f"{name} + PSO"] = {
+                "alloys": optimized_alloys,
+                "chem": chem_final
+            }
+            step += 1
+            progress.progress(step / total_steps)
 
     # Store everything needed in session state
     st.session_state["optimization_results"] = results
