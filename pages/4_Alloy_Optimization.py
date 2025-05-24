@@ -1,0 +1,201 @@
+import streamlit as st
+import pandas as pd
+import numpy as np
+import torch
+import datetime
+import matplotlib.pyplot as plt
+from sklearn.preprocessing import StandardScaler
+import joblib
+import os
+import random
+
+from src.preprocessing import preprocess_pipeline
+from src.tabtransformer import NumericalTabTransformer
+from src.optimization import run_ga_optimization, run_pso_optimization
+
+st.set_page_config(layout="wide")
+st.title("🧬 Alloy Optimization using GA and PSO for All Models")
+
+if "uploaded_file" not in st.session_state:
+    st.error("❗ Please upload a dataset from the Home page.")
+    st.stop()
+
+uploaded_file = st.session_state["uploaded_file"]
+if not uploaded_file:
+    st.warning("Upload a dataset to start optimization.")
+    st.stop()
+
+# Rerun button
+if "rerun_optimization" not in st.session_state:
+    st.session_state.rerun_optimization = True
+
+if not st.session_state.get("optimization_results") or st.button("🔁 Rerun Optimization"):
+    st.session_state.rerun_optimization = True
+
+if st.session_state.rerun_optimization:
+    df, summary_df = preprocess_pipeline(uploaded_file)
+
+    alloy_cols = [
+        "CSP-SiMn", "Mn HC", "Mn MC", "Mn LC", "Mn Metal", "FeSi", "Ladle Cov",
+        "FeMo Metal", "FeV", "FeNb lumps", "FeTi lumps", "FeTi Wire", "FeB", "FeAl",
+        "Cal Carb", "Al bar", "Al  wire", "FeP", "Sul Stick", "Al mix", "CaSi wire",
+        "Cal Wire", "CaFeAl Wire", "S Wire", "Ni Plate", "FeCr LC", "FeCr HC",
+        "Al Shot", "Lead Wire", "Mo Metal", "Syn Slag"
+    ]
+    process_cols = [
+        'Lift Temp', 'Liquidus temp (° C)', 'Arching Time-mm', 'LRF Holding Time-mm', 'LRF Lime',
+        'C%', 'Mn%', 'S%', 'P%', 'Si%', 'Cr%', 'Ni%', 'Mo%', 'V%', 'Ti%', 'Al%', 'Ca%', 'N%', 'Pb%', 'Nb%'
+    ]
+    delta_cols = [f"Delta_{el.replace('%','')}" for el in process_cols if f"Delta_{el.replace('%','')}" in df.columns]
+    features = [col for col in alloy_cols + process_cols + delta_cols if col in df.columns]
+    target = [f"F-{el}" for el in ['C%', 'Mn%', 'S%', 'P%', 'Si%', 'Cr%', 'Ni%', 'Mo%',
+                                   'V%', 'Ti%', 'Al%', 'Ca%', 'N%', 'Pb%', 'Nb%'] if f"F-{el}" in df.columns]
+
+    df_model = df.dropna(subset=features + target)
+
+    def clean_datetime_columns(df):
+        for col in df.columns:
+            if df[col].dtype == 'O' or df[col].apply(lambda x: isinstance(x, datetime.time)).any():
+                df[col] = df[col].apply(lambda t: t.hour * 3600 + t.minute * 60 + t.second if isinstance(t, datetime.time) else pd.to_numeric(t, errors='coerce'))
+        return df.fillna(0)
+
+    cleaned_df = clean_datetime_columns(df_model[features].copy())
+    X = cleaned_df.copy()
+    y = df_model[target].apply(pd.to_numeric, errors='coerce').fillna(0)
+
+    feature_scaler = StandardScaler()
+    target_scaler = StandardScaler()
+    X_scaled = feature_scaler.fit_transform(X)
+    y_scaled = target_scaler.fit_transform(y)
+
+    aim_row = summary_df.iloc[3].fillna(0)
+    chem_target = {f"F-{k.strip()}": float(v) for k, v in aim_row.items() if k.strip().endswith("%") and f"F-{k.strip()}" in target}
+    base_inputs = cleaned_df.median(numeric_only=True).to_dict()
+
+    models = {
+        "TabTransformer": {
+            "model": NumericalTabTransformer(input_dim=X_scaled.shape[1], output_dim=y_scaled.shape[1]),
+            "path": "models/tabtransformer_model.pth",
+            "type": "TabTransformer"
+        },
+        "XGBoost": {
+            "model": joblib.load("models/xgboost_multioutput.pkl"),
+            "type": "XGBoost"
+        },
+        "Ranked XGBoost": {
+            "model": joblib.load("models/xgboost_multioutput_ranked.pkl"),
+            "type": "Ranked XGBoost"
+        }
+    }
+
+    results = {}
+    SEED = 42
+    np.random.seed(SEED)
+    random.seed(SEED)
+    torch.manual_seed(SEED)
+
+    progress = st.progress(0)
+    st.info("Running GA optimization for all models...")
+
+    for i, (name, entry) in enumerate(models.items()):
+        model = entry["model"]
+        model_type = entry["type"]
+
+        if name == "TabTransformer":
+            model.load_state_dict(torch.load(entry["path"]))
+            model.eval()
+
+        optimized_alloys, chem_final = run_ga_optimization(
+            model=model,
+            model_type=model_type,
+            features=features,
+            target=target,
+            feature_scaler=feature_scaler,
+            target_scaler=target_scaler,
+            base_inputs=base_inputs,
+            target_chemistry_dict=chem_target,
+            alloy_cols=alloy_cols,
+            df=df_model,
+            seed=SEED
+        )
+
+        results[f"{name} + GA"] = {
+            "alloys": optimized_alloys,
+            "chem": chem_final
+        }
+
+        progress.progress((i + 1) / (2 * len(models)))
+
+    st.info("Running PSO optimization for all models...")
+
+    for j, (name, entry) in enumerate(models.items()):
+        model = entry["model"]
+        model_type = entry["type"]
+
+        optimized_alloys, chem_final = run_pso_optimization(
+            model=model,
+            model_type=model_type,
+            features=features,
+            target=target,
+            feature_scaler=feature_scaler,
+            target_scaler=target_scaler,
+            base_inputs=base_inputs,
+            target_chemistry_dict=chem_target,
+            alloy_cols=alloy_cols,
+            df_successful=df_model,
+            seed=SEED
+        )
+
+        results[f"{name} + PSO"] = {
+            "alloys": optimized_alloys,
+            "chem": chem_final
+        }
+
+        progress.progress((len(models) + j + 1) / (2 * len(models)))
+
+    # Store everything needed in session state
+    st.session_state["optimization_results"] = results
+    st.session_state["summary_df"] = summary_df
+    st.session_state["target_df"] = df
+    st.session_state.rerun_optimization = False
+
+# Rehydrate variables
+results = st.session_state["optimization_results"]
+summary_df = st.session_state["summary_df"]
+df = st.session_state["target_df"]
+
+summary_row = summary_df.iloc[2].fillna(0)
+aim_row = summary_df.iloc[3].fillna(0)
+
+process_cols = [
+    'Lift Temp', 'Liquidus temp (° C)', 'Arching Time-mm', 'LRF Holding Time-mm', 'LRF Lime',
+    'C%', 'Mn%', 'S%', 'P%', 'Si%', 'Cr%', 'Ni%', 'Mo%', 'V%', 'Ti%', 'Al%', 'Ca%', 'N%', 'Pb%', 'Nb%'
+]
+delta_cols = [f"Delta_{el.replace('%','')}" for el in process_cols if f"Delta_{el.replace('%','')}" in df.columns]
+target = [f"F-{el}" for el in ['C%', 'Mn%', 'S%', 'P%', 'Si%', 'Cr%', 'Ni%', 'Mo%',
+                               'V%', 'Ti%', 'Al%', 'Ca%', 'N%', 'Pb%', 'Nb%'] if f"F-{el}" in df.columns]
+chem_target = {f"F-{k.strip()}": float(v) for k, v in aim_row.items()
+               if k.strip().endswith("%") and f"F-{k.strip()}" in target}
+
+# --- DISPLAY OUTPUTS ---
+st.subheader("🧪 Optimized Alloy Additions (Descending Order)")
+alloy_df = pd.DataFrame({k: pd.Series(v["alloys"]) for k, v in results.items()}).fillna(0)
+sorted_alloy_df = alloy_df.loc[alloy_df.mean(axis=1).sort_values(ascending=False).index]
+st.dataframe(sorted_alloy_df.round(4))
+
+st.subheader("📊 Final Chemistry Predictions vs Aim")
+chem_df = pd.DataFrame()
+for key, val in results.items():
+    chem_df[key] = val["chem"][:len(target)]
+chem_df["Aim"] = [chem_target.get(col, 0) for col in target]
+chem_df.index = target
+st.dataframe(chem_df.round(4))
+
+st.subheader("📉 Variance from Aim (Prediction - Aim)")
+for model_key in results.keys():
+    variance = chem_df[model_key] - chem_df["Aim"]
+    fig, ax = plt.subplots(figsize=(12, 4))
+    variance.plot(kind="bar", ax=ax)
+    ax.set_ylabel("Delta from Aim")
+    ax.set_title(model_key)
+    st.pyplot(fig)

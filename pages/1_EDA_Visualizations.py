@@ -15,7 +15,13 @@ from src.preprocessing import preprocess_pipeline
 st.set_page_config(page_title="EDA Visualizations - Ladle Refining", layout="wide")
 st.title("📊 Advanced EDA Visualizations - Ladle Refining Optimization")
 
-uploaded = st.file_uploader("📤 Upload your Raw Ladle Excel file", type=["xlsx"])
+# Use uploaded file from session state
+if "uploaded_file" not in st.session_state:
+    st.error("❗ Please upload a dataset from the Home page.")
+    st.stop()
+
+uploaded = st.session_state["uploaded_file"]
+
 
 if uploaded:
     with st.spinner('⏳ Running Preprocessing on uploaded file...'):
@@ -35,7 +41,13 @@ if uploaded:
     delta_cols = [col for col in df.columns if col.startswith('Delta_')]
     final_cols = [col for col in df.columns if col.startswith('F-')]
     open_chem = [col for col in df.columns if '%' in col and not col.startswith('F-')]
-    alloy_cols = ['Mn HC', 'Mn MC', 'FeCr HC', 'FeMo Metal', 'FeSi']
+    alloy_cols =  [
+        "CSP-SiMn", "Mn HC", "Mn MC", "Mn LC", "Mn Metal", "FeSi", "Ladle Cov",
+        "FeMo Metal", "FeV", "FeNb lumps", "FeTi lumps", "FeTi Wire", "FeB", "FeAl",
+        "Cal Carb", "Al bar", "Al  wire", "FeP", "Sul Stick", "Al mix", "CaSi wire",
+        "Cal Wire", "CaFeAl Wire", "S Wire", "Ni Plate", "FeCr LC", "FeCr HC",
+        "Al Shot", "Lead Wire", "Mo Metal", "Syn Slag"
+    ]
     ladle_features = ['Liquidus temp (° C)', 'LRF Total Time (Min)', 'Lift Temp', 'Arching Time-mm', 'LRF Lime']
 
     # --- Tabs ---
