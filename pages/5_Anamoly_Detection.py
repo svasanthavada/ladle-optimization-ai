@@ -10,6 +10,8 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 
 from src.preprocessing import preprocess_pipeline
+from sklearn.metrics import confusion_matrix, accuracy_score
+
 
 st.set_page_config(layout="wide")
 st.title("🚨 Anomaly Detection on Ladle Chemistry & Process Data")
@@ -106,3 +108,32 @@ top50 = df_model.sort_values("Final Anomaly Label").head(50)
 fig, ax = plt.subplots(figsize=(14, 6))
 sns.heatmap(top50[features].astype(float), cmap="coolwarm", cbar=True, ax=ax)
 st.pyplot(fig)
+
+st.subheader("🔗 Confusion Matrices Between Models")
+
+model_names = ["IsolationForest", "OneClassSVM", "LOF"]
+label_map = {-1: "Anomalous", 1: "Normal"}
+
+for i in range(len(model_names)):
+    for j in range(i+1, len(model_names)):
+        m1, m2 = model_names[i], model_names[j]
+        cm = confusion_matrix(
+            df_model[m1].map(label_map),
+            df_model[m2].map(label_map),
+            labels=["Anomalous", "Normal"]
+        )
+        cm_df = pd.DataFrame(cm, index=["Anomalous", "Normal"], columns=["Anomalous", "Normal"])
+        st.write(f"**{m1} vs {m2}**")
+        st.dataframe(cm_df)
+
+st.subheader("✅ Model Accuracy vs Final Anomaly Label")
+
+final_label = df_model["Final Anomaly Label"].map({"Anomalous": -1, "Normal": 1})
+
+accuracy_data = {}
+for model in model_names:
+    acc = accuracy_score(final_label, df_model[model])
+    accuracy_data[model] = [f"{acc*100:.2f}%"]
+
+accuracy_df = pd.DataFrame(accuracy_data, index=["Accuracy"])
+st.dataframe(accuracy_df)

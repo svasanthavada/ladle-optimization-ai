@@ -1,17 +1,39 @@
 import streamlit as st
 import pandas as pd
+import os
 
-# Load the success rate data
-@st.cache_data
+DATA_DIR = "data"
+os.makedirs(DATA_DIR, exist_ok=True)
+
+# --- Load the success rate data from data folder ---
 def load_success_data():
-    try:
-        df = pd.read_csv('2025-04-27T15-11_export.csv')
-        return df
-    except Exception as e:
-        st.error(f"Error loading success data: {e}")
-        return None
+    path = os.path.join(DATA_DIR, "successful_runs.csv")
+    if os.path.exists(path):
+        try:
+            df = pd.read_csv(path)
+            df = df.drop_duplicates()
+            if "Success_Score" in df.columns:
+                df["Success_Score"] = pd.to_numeric(df["Success_Score"], errors="coerce").fillna(0)
+            return df
+        except Exception as e:
+            st.error(f"Error loading {path}: {e}")
+    return None
 
 success_df = load_success_data()
+
+# --- Load successful runs data from data folder ---
+def load_successful_runs():
+    path = os.path.join(DATA_DIR, "successful_runs.csv")
+    if os.path.exists(path):
+        try:
+            df = pd.read_csv(path)
+            return df
+        except Exception as e:
+            st.warning(f"Could not load successful runs: {e}")
+    return None
+
+successful_runs_df = load_successful_runs()
+successful_runs_count = len(successful_runs_df) if successful_runs_df is not None else 0
 
 st.title("📖 EDA Insights and Interpretations")
 
@@ -53,24 +75,50 @@ st.markdown("""
 st.header("4. Success Rate Data Insights")
 
 if success_df is not None:
-    if 'Success_Rate' in success_df.columns:
-        avg_success = success_df['Success_Rate'].mean() * 100
-        best_heat = success_df.loc[success_df['Success_Rate'].idxmax()]
-        worst_heat = success_df.loc[success_df['Success_Rate'].idxmin()]
+    if 'Success_Score' in success_df.columns:
+        avg_success = success_df['Success_Score'].mean() * 100
+        best_heat = success_df.loc[success_df['Success_Score'].idxmax()]
+        worst_heat = success_df.loc[success_df['Success_Score'].idxmin()]
 
         st.markdown(f"""
         - **Average Success Rate** across heats: **{avg_success:.2f}%**
-        - **Best Performing Heat**: {best_heat['Heat_ID']} (Success Rate: {best_heat['Success_Rate']*100:.2f}%)
-        - **Least Performing Heat**: {worst_heat['Heat_ID']} (Success Rate: {worst_heat['Success_Rate']*100:.2f}%)
+        - **Best Performing Heat**: {best_heat['HEAT NO']} (Success Rate: {best_heat['Success_Score']*100:.2f}%)
+        - **Least Performing Heat**: {worst_heat['HEAT NO']} (Success Rate: {worst_heat['Success_Score']*100:.2f}%)
+        - **Number of Successful Model Runs (Top 10):** **{successful_runs_count}**
         
         📈 Most heats achieved >90% success, indicating strong process consistency.
         """)
+        st.dataframe(success_df.head())
     else:
-        st.warning("No 'Success_Rate' column found in uploaded success data.")
+        st.warning("No 'Success_Score' column found in uploaded success data.")
 else:
-    st.warning("Success data not available.")
+    st.markdown(f"- **Number of Successful Model Runs (Top 10):** **{successful_runs_count}**")
+    st.warning("Success data not available. Please upload a CSV file in the Home or EDA Visualizations page.")
+
+if successful_runs_df is not None:
+    st.subheader("Top Successful Runs (from Preprocessing)")
+    st.dataframe(successful_runs_df)
+
+# ------------------
+st.header("5. Latest EDA File Insights")
+def get_latest_eda_file():
+    eda_files = [f for f in os.listdir(DATA_DIR) if f.lower().startswith('preprocessed') and f.endswith('.csv')]
+    if not eda_files:
+        return None
+    latest = max(eda_files, key=lambda f: os.path.getmtime(os.path.join(DATA_DIR, f)))
+    return os.path.join(DATA_DIR, latest)
+
+latest_eda = get_latest_eda_file()
+if latest_eda:
+    st.markdown(f"**Latest preprocessed EDA file loaded:** `{os.path.basename(latest_eda)}`")
+    eda_df = pd.read_csv(latest_eda)
+    st.dataframe(eda_df.head())
+    st.markdown(f"- **Rows:** {eda_df.shape[0]}, **Columns:** {eda_df.shape[1]}")
+    st.markdown("- **Preview above shows the most recent preprocessed EDA data for further analysis.**")
+else:
+    st.info("No preprocessed EDA CSV file found in the data folder.")
 
 # ------------------
 st.success("✅ These insights dynamically guide alloy addition optimization, process control tuning, and anomaly detection modules.")
 
-st.info("ℹ️ Generated based on real visualizations: Process-Chemistry Correlation Heatmap, Delta% Distributions, Z-Score Outlier Analysis, and Success Rate Analytics.")
+st.info("ℹ️ Generated based on real visualizations: Process-Chemistry Correlation Heatmap, Delta% Distributions, Z-Score Outlier Analysis, Success Rate Analytics, and latest EDA file preview.")

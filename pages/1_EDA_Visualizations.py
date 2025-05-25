@@ -15,6 +15,9 @@ from src.preprocessing import preprocess_pipeline
 st.set_page_config(page_title="EDA Visualizations - Ladle Refining", layout="wide")
 st.title("📊 Advanced EDA Visualizations - Ladle Refining Optimization")
 
+DATA_DIR = "data"
+os.makedirs(DATA_DIR, exist_ok=True)
+
 # Use uploaded file from session state
 if "uploaded_file" not in st.session_state:
     st.error("❗ Please upload a dataset from the Home page.")
@@ -22,12 +25,15 @@ if "uploaded_file" not in st.session_state:
 
 uploaded = st.session_state["uploaded_file"]
 
-
 if uploaded:
     with st.spinner('⏳ Running Preprocessing on uploaded file...'):
         # Load and preprocess the data
         df, summary_df = preprocess_pipeline(uploaded)
 
+        # Save preprocessed data to data folder
+        preprocessed_path = os.path.join(DATA_DIR, "preprocessed_ladle_data.csv")
+        df.to_csv(preprocessed_path, index=False)
+        st.info(f"Preprocessed data saved to `{preprocessed_path}`.")
 
     st.success("✅ Data Preprocessing Completed!")
 
@@ -37,6 +43,37 @@ if uploaded:
         file_name='preprocessed_ladle_data.csv',
         mime='text/csv',
     )
+
+    # Save successful runs (top 10 heats) to data folder for insights
+    def save_successful_runs(df, summary_df):
+        try:
+            grade_row = summary_df.iloc[0]  # First row = target chemistry
+            target_chem = {}
+            for el in ['C%', 'Mn%', 'S%', 'P%', 'Si%', 'Cr%', 'Ni%', 'Mo%', 'V%', 'Ti%', 'Al%', 'Ca%', 'N%', 'Pb%', 'Nb%']:
+                val = grade_row.get(el)
+                if pd.notnull(val) and isinstance(val, (int, float)):
+                    target_chem[f"F-{el}"] = float(val)
+            if target_chem:
+                from sklearn.metrics.pairwise import euclidean_distances
+                final_cols_present = [col for col in target_chem if col in df.columns]
+                final_df = df[final_cols_present].fillna(0).copy()
+                target_vector = np.array([target_chem[col] for col in final_cols_present]).reshape(1, -1)
+                distance = euclidean_distances(final_df, target_vector).flatten()
+                df['Success_Score'] = 1 / (1 + distance)
+                if 'HEAT NO' in df.columns:
+                    df['HEAT NO'] = df['HEAT NO'].astype(str)
+                else:
+                    df['HEAT NO'] = df.index.astype(str)
+                top_10_heats = df.sort_values(by="Success_Score", ascending=False).head(10)
+                top_10_summary = top_10_heats[["HEAT NO", "Success_Score"] + list(final_cols_present)].copy()
+                top_10_summary.reset_index(drop=True, inplace=True)
+                success_path = os.path.join(DATA_DIR, "successful_runs.csv")
+                top_10_summary.to_csv(success_path, index=False)
+                st.info(f"Top 10 successful runs saved to `{success_path}`.")
+        except Exception as e:
+            st.warning(f"Could not save successful runs: {e}")
+
+    save_successful_runs(df, summary_df)
 
     delta_cols = [col for col in df.columns if col.startswith('Delta_')]
     final_cols = [col for col in df.columns if col.startswith('F-')]
@@ -64,6 +101,8 @@ if uploaded:
         "🧩 3D Alloy Influence",
         "📈 Pairplots of Alloys vs Chemistry"
     ])
+
+    # ... rest of the tab code remains unchanged ...
 
     with tabs[0]:
         st.subheader("🔥 Correlation Heatmap: Process vs Δ Chemistry")
@@ -167,7 +206,7 @@ if uploaded:
                     target_vector = np.array([target_chem[col] for col in final_cols_present]).reshape(1, -1)
                     distance = euclidean_distances(final_df, target_vector).flatten()
 
-                    df['Success_Score'] = -distance
+                    df['Success_Score'] = 1 / (1 + distance)
 
                     if 'HEAT NO' in df.columns:
                         df['HEAT NO'] = df['HEAT NO'].astype(str)
