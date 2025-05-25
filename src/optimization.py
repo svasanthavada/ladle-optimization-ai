@@ -30,12 +30,25 @@ def mutGaussianBounded(individual, mu, sigma, indpb, low, up):
     return individual,
 
 def run_ga_optimization(
-    model, model_type, features, target, feature_scaler, target_scaler,
-    base_inputs, target_chemistry_dict, alloy_cols, df,
-    ngen=50, pop_size=50, seed=42
+    model,
+    model_type,
+    features,
+    target,
+    feature_scaler,
+    target_scaler,
+    base_inputs,
+    target_chemistry_dict,
+    alloy_cols,
+    df,
+    seed=42,
+    population_size=50,
+    generations=50,
+    crossover_prob=0.5,
+    mutation_prob=0.2
 ):
     np.random.seed(seed)
     random.seed(seed)
+    # For Ranked XGBoost, alloy_cols should be the top N alloys only
     alloy_features_in_model = [col for col in alloy_cols if col in features]
     bounds = [(max(0, df[col].min()), df[col].max()) for col in alloy_features_in_model]
     low_bounds, up_bounds = zip(*[(l, u if l < u else l + 1e-6) for l, u in bounds])
@@ -63,14 +76,22 @@ def run_ga_optimization(
         return np.sqrt(np.mean((pred[:len(target)] - target_vec[:len(target)]) ** 2)),
 
     toolbox.register("evaluate", evaluate)
-    pop = toolbox.population(n=pop_size)
+    pop = toolbox.population(n=population_size)
     hof = tools.HallOfFame(1)
     stats = tools.Statistics(lambda ind: ind.fitness.values)
     stats.register("avg", np.mean)
     stats.register("min", np.min)
 
-    algorithms.eaSimple(pop, toolbox, cxpb=0.5, mutpb=0.2, ngen=ngen, stats=stats, halloffame=hof, verbose=False)
-
+    algorithms.eaSimple(
+        pop, toolbox,
+        cxpb=crossover_prob,
+        mutpb=mutation_prob,
+        ngen=generations,
+        stats=stats,
+        halloffame=hof,
+        verbose=False
+    )
+    
     best = hof[0]
     optimized_alloys = dict(zip(alloy_features_in_model, best))
     optimized_alloys = {k: max(0.0, v) for k, v in optimized_alloys.items()}
@@ -91,9 +112,22 @@ def run_ga_optimization(
     return optimized_alloys, chem
 
 def run_pso_optimization(
-    model, model_type, features, target, feature_scaler, target_scaler,
-    base_inputs, target_chemistry_dict, alloy_cols, df_successful,
-    n_particles=50, iters=100, seed=42
+    model,
+    model_type,
+    features,
+    target,
+    feature_scaler,
+    target_scaler,
+    base_inputs,
+    target_chemistry_dict,
+    alloy_cols,
+    df_successful,
+    particles=50,
+    iterations=100,
+    c1=0.5,
+    c2=0.7,
+    w=0.4,
+    seed=42
 ):
     np.random.seed(seed)
     random.seed(seed)
@@ -123,11 +157,10 @@ def run_pso_optimization(
             fitness.append(rmse)
         return np.array(fitness)
 
-    from pyswarms.single.global_best import GlobalBestPSO
-    options = {'c1': 0.5, 'c2': 0.7, 'w': 0.4}
-    optimizer = GlobalBestPSO(n_particles=n_particles, dimensions=len(alloy_features_in_model),
+    options = {'c1': c1, 'c2': c2, 'w': w}
+    optimizer = GlobalBestPSO(n_particles=particles, dimensions=len(alloy_features_in_model),
                               options=options, bounds=(low, up))
-    cost, pos = optimizer.optimize(fitness_function, iters=iters)
+    cost, pos = optimizer.optimize(fitness_function, iters=iterations)
 
     best_individual = pos
     optimized_alloys = dict(zip(alloy_features_in_model, best_individual))

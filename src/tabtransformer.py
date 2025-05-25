@@ -35,7 +35,11 @@ class NumericalTabTransformer(nn.Module):
         x = self.layers(x)
         return self.output_layer(x)
 
-def run_tabtransformer_model(filepath):
+def run_tabtransformer_model(
+    filepath,
+    epochs=50,
+    learning_rate=0.001
+):
     # Set random seed for reproducibility
     SEED = 42
     np.random.seed(SEED)
@@ -74,8 +78,6 @@ def run_tabtransformer_model(filepath):
     if not features or not target:
         raise ValueError("Missing required input or target columns in dataset.")
 
-    print(f"✅ Using {len(features)} features: {features}")
-
     # Prepare data
     X = df[features]
     y = df[target]
@@ -105,13 +107,14 @@ def run_tabtransformer_model(filepath):
     output_dim = y_train_scaled.shape[1]
 
     model = NumericalTabTransformer(input_dim, output_dim)
-    optimizer = optim.Adam(model.parameters(), lr=0.001)
+    optimizer = optim.Adam(model.parameters(), lr=learning_rate)
     criterion = nn.MSELoss()
 
     X_train_tensor = torch.tensor(X_train_scaled, dtype=torch.float32)
     y_train_tensor = torch.tensor(y_train_scaled, dtype=torch.float32)
 
-    for epoch in range(200):
+    # Training loop
+    for epoch in range(epochs):
         model.train()
         optimizer.zero_grad()
         y_pred_train = model(X_train_tensor)
@@ -137,10 +140,6 @@ def run_tabtransformer_model(filepath):
     ss_total = np.sum((y_true - np.mean(y_true)) ** 2)
     ss_residual = np.sum((y_true - y_pred) ** 2)
     r2_manual = 1 - (ss_residual / ss_total)
-
-    print("SS_total:", ss_total)
-    print("SS_residual:", ss_residual)
-    print("Manual R²:", r2_manual)
 
     rmse = np.sqrt(mean_squared_error(y_true, y_pred))
     r2 = r2_score(y_true, y_pred)

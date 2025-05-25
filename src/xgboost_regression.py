@@ -9,11 +9,14 @@ from sklearn.metrics import mean_squared_error, r2_score
 from sklearn.model_selection import train_test_split
 from xgboost import XGBRegressor
 from src.preprocessing import create_delta_columns
-
 from src.preprocessing import load_data, load_summary, preprocess_data
 
-def run_xgboost_regression(filepath):
-
+def run_xgboost_regression(
+    filepath,
+    n_estimators=100,
+    max_depth=6,
+    learning_rate=0.01
+):
     SEED = 42
     np.random.seed(SEED)
     random.seed(SEED)
@@ -21,7 +24,6 @@ def run_xgboost_regression(filepath):
     df = load_data(filepath)
     summary_df = load_summary(filepath)
     df = create_delta_columns(df)  # Make sure delta columns are created
-    
 
     target_row = summary_df.iloc[0]
     required_elements = ['C%', 'Mn%', 'S%', 'P%', 'Si%', 'Cr%', 'Ni%', 'Mo%',
@@ -62,7 +64,6 @@ def run_xgboost_regression(filepath):
     y = df[target_columns]
 
     X_train, X_temp, y_train, y_temp = train_test_split(X, y, test_size=0.3, random_state=SEED)
-
     X_val, X_test, y_val, y_test = train_test_split(X_temp, y_temp, test_size=0.5, random_state=SEED)
 
     X_train = preprocess_data(X_train)
@@ -72,7 +73,12 @@ def run_xgboost_regression(filepath):
     y_val = preprocess_data(y_val)
     y_test = preprocess_data(y_test)
 
-    base_model = XGBRegressor(n_estimators=100, learning_rate=0.01, max_depth=6, random_state=42)
+    base_model = XGBRegressor(
+        n_estimators=n_estimators,
+        learning_rate=learning_rate,
+        max_depth=max_depth,
+        random_state=SEED
+    )
     model = MultiOutputRegressor(base_model)
     model.fit(X_train, y_train)
 

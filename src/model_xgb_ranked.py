@@ -8,11 +8,15 @@ from sklearn.metrics import mean_squared_error, r2_score
 from sklearn.model_selection import train_test_split
 from xgboost import XGBRegressor
 from src.preprocessing import create_delta_columns
-
 from src.preprocessing import load_data, load_summary, preprocess_data
 
-def run_xgboost_regression_ranked(filepath, top_n_alloys=10):
-
+def run_xgboost_regression_ranked(
+    filepath,
+    top_n_alloys=10,
+    n_estimators=100,
+    max_depth=6,
+    learning_rate=0.01
+):
     SEED = 42
     np.random.seed(SEED)
     random.seed(SEED)
@@ -20,7 +24,6 @@ def run_xgboost_regression_ranked(filepath, top_n_alloys=10):
     df = load_data(filepath)
     summary_df = load_summary(filepath)
     df = create_delta_columns(df)  # Make sure delta columns are created
-    
 
     target_row = summary_df.iloc[0]
     required_elements = ['C%', 'Mn%', 'S%', 'P%', 'Si%', 'Cr%', 'Ni%', 'Mo%',
@@ -35,6 +38,7 @@ def run_xgboost_regression_ranked(filepath, top_n_alloys=10):
         "Al Shot", "Lead Wire", "Mo Metal", "Syn Slag"
     ]
 
+    # Rank alloys by usage and select top N for optimization (not for training)
     alloy_usage_counts = (df[alloy_features] != 0).sum().sort_values(ascending=False)
     selected_alloy_features = alloy_usage_counts.head(top_n_alloys).index.tolist()
 
@@ -43,10 +47,10 @@ def run_xgboost_regression_ranked(filepath, top_n_alloys=10):
     process_features = ['Lift Temp', 'Liquidus temp (° C)', 'Arching Time-mm',
                         'LRF Holding Time-mm', 'LRF Lime']
 
-     # Generate delta columns dynamically
+    # Generate delta columns dynamically
     delta_cols = [f"Delta_{el.replace('%', '')}" for el in open_chemistry if f"Delta_{el.replace('%', '')}" in df.columns]
 
-    # Combine all features
+    # Use all alloys for training, but only top N for optimization
     input_features = process_features + alloy_features + open_chemistry + delta_cols
     target_columns = list(target_chemistry.keys())
 
@@ -62,8 +66,6 @@ def run_xgboost_regression_ranked(filepath, top_n_alloys=10):
 
     # Split the data into training and temporary sets
     X_train, X_temp, y_train, y_temp = train_test_split(X, y, test_size=0.3, random_state=SEED)
-
-    # Split the remaining data into validation and test sets
     X_val, X_test, y_val, y_test = train_test_split(X_temp, y_temp, test_size=0.5, random_state=SEED)
 
     X_train = preprocess_data(X_train)
@@ -73,7 +75,12 @@ def run_xgboost_regression_ranked(filepath, top_n_alloys=10):
     y_val = preprocess_data(y_val)
     y_test = preprocess_data(y_test)
 
-    base_model = XGBRegressor(n_estimators=100, learning_rate=0.01, max_depth=6, random_state=42)
+    base_model = XGBRegressor(
+        n_estimators=n_estimators,
+        learning_rate=learning_rate,
+        max_depth=max_depth,
+        random_state=SEED
+    )
     model = MultiOutputRegressor(base_model)
     model.fit(X_train, y_train)
 

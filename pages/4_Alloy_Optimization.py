@@ -1,5 +1,5 @@
 import os
-os.environ["STREAMLIT_WATCHER_IGNORE_MODULES"] = "torch"  # <-- Add this line at the very top
+os.environ["STREAMLIT_WATCHER_IGNORE_MODULES"] = "torch"
 
 import streamlit as st
 import pandas as pd
@@ -17,6 +17,54 @@ from src.optimization import run_ga_optimization, run_pso_optimization
 
 st.set_page_config(layout="wide")
 st.title("🧬 Alloy Optimization using GA and PSO for All Models")
+
+with st.sidebar:
+    st.header("GA Hyperparameters")
+    if "ga_population_size" not in st.session_state:
+        st.session_state.ga_population_size = 50
+    if "ga_generations" not in st.session_state:
+        st.session_state.ga_generations = 50
+    if "ga_crossover_prob" not in st.session_state:
+        st.session_state.ga_crossover_prob = 0.5
+    if "ga_mutation_prob" not in st.session_state:
+        st.session_state.ga_mutation_prob = 0.2
+
+    st.header("PSO Hyperparameters")
+    if "pso_particles" not in st.session_state:
+        st.session_state.pso_particles = 50
+    if "pso_iterations" not in st.session_state:
+        st.session_state.pso_iterations = 50
+    if "pso_c1" not in st.session_state:
+        st.session_state.pso_c1 = 0.5
+    if "pso_c2" not in st.session_state:
+        st.session_state.pso_c2 = 0.3
+    if "pso_w" not in st.session_state:
+        st.session_state.pso_w = 0.9
+
+    reset_hyper = st.button("Reset Hyperparameters")
+
+    if reset_hyper:
+        st.session_state.ga_population_size = 50
+        st.session_state.ga_generations = 50
+        st.session_state.ga_crossover_prob = 0.5
+        st.session_state.ga_mutation_prob = 0.2
+        st.session_state.pso_particles = 50
+        st.session_state.pso_iterations = 50
+        st.session_state.pso_c1 = 0.5
+        st.session_state.pso_c2 = 0.3
+        st.session_state.pso_w = 0.9
+        st.rerun()
+
+    ga_population_size = st.number_input("GA Population Size", min_value=10, max_value=500, step=1, key="ga_population_size")
+    ga_generations = st.number_input("GA Generations", min_value=10, max_value=500, step=1, key="ga_generations")
+    ga_crossover_prob = st.slider("GA Crossover Probability", min_value=0.0, max_value=1.0, key="ga_crossover_prob")
+    ga_mutation_prob = st.slider("GA Mutation Probability", min_value=0.0, max_value=1.0, key="ga_mutation_prob")
+    pso_c1 = st.slider("PSO c1 (cognitive)", min_value=0.0, max_value=5.0, key="pso_c1")
+    pso_c2 = st.slider("PSO c2 (social)", min_value=0.0, max_value=5.0, key="pso_c2")
+    pso_w = st.slider("PSO inertia weight", min_value=0.0, max_value=1.0, key="pso_w")
+    pso_particles = st.number_input("PSO Particles", min_value=10, max_value=500, step=1, key="pso_particles")
+    pso_iterations = st.number_input("PSO Iterations", min_value=10, max_value=500, step=1, key="pso_iterations")
+   
 
 if "uploaded_file" not in st.session_state:
     st.error("❗ Please upload a dataset from the Home page.")
@@ -111,8 +159,7 @@ if st.session_state.rerun_optimization:
             if name == "TabTransformer":
                 model.load_state_dict(torch.load(entry["path"]))
                 model.eval()
-
-            optimized_alloys, chem_final = run_ga_optimization(
+            optimized_alloys, chem_final = run_pso_optimization(
                 model=model,
                 model_type=model_type,
                 features=features,
@@ -122,7 +169,12 @@ if st.session_state.rerun_optimization:
                 base_inputs=base_inputs,
                 target_chemistry_dict=chem_target,
                 alloy_cols=alloy_cols,
-                df=df_model,
+                df_successful=df_model,
+                particles=pso_particles,
+                iterations=pso_iterations,
+                c1=pso_c1,
+                c2=pso_c2,
+                w=pso_w,
                 seed=SEED
             )
 
